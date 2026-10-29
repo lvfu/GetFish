@@ -1,5 +1,5 @@
 import { Node, Graphics, UITransform, Color } from 'cc';
-import { DESIGN, TUNE } from './GameConfig.js';
+import { DESIGN, TUNE, VIEW } from './GameConfig.js';
 import { circleD } from './DayNight.js';
 /** 上浮的气泡，纯装饰 */
 export class Bubbles {
@@ -12,7 +12,7 @@ export class Bubbles {
         this.g = this.node.addComponent(Graphics);
         for (let i = 0; i < count; i++) {
             this.items.push({
-                x: Math.random() * DESIGN.w,
+                x: VIEW.left + Math.random() * VIEW.w,
                 y: TUNE.waterTop + Math.random() * (DESIGN.h - TUNE.waterTop),
                 r: 2 + Math.random() * 4,
                 spd: 18 + Math.random() * 34,
@@ -24,9 +24,11 @@ export class Bubbles {
         for (const b of this.items) {
             b.y -= b.spd * dt;
             b.x += Math.sin((b.y + b.phase) * 0.02) * 8 * dt;
-            if (b.y < TUNE.waterTop + 4) {
+            // 码头立面压到 waterTop+16，再按 waterTop+4 冒破会在木板后面消失，
+            // 看起来像半路凭空没了
+            if (b.y < TUNE.waterTop + 20) {
                 b.y = TUNE.floorY - 10;
-                b.x = Math.random() * DESIGN.w;
+                b.x = VIEW.left + Math.random() * VIEW.w;
             }
         }
         const g = this.g;

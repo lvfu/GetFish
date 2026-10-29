@@ -203,6 +203,18 @@ def render_win():
     return buf
 
 
+def render_prop():
+    """道具：上行三连铃音 + 一串高频闪光，和「捕获」的两声铃音区分开"""
+    dur = 0.72
+    buf = np.zeros(int(dur * SR))
+    for i, midi in enumerate((79, 84, 88)):
+        add(buf, i * 0.055, bell(mtof(midi), 0.55, 0.34))
+    # 尾巴上撒几颗很轻的高音点缀，做出「叮」的余韵
+    for i, midi in enumerate((96, 100, 103)):
+        add(buf, 0.17 + i * 0.045, bell(mtof(midi), 0.26, 0.10))
+    return buf
+
+
 def write_mp3(path, data, kbps=64):
     peak = np.max(np.abs(data)) or 1.0
     x = np.clip(data / peak * 0.9, -1, 1)
@@ -228,7 +240,8 @@ def main():
     print(f"bgm.mp3        {len(bgm)/SR:5.1f}s  {size/1024:6.1f} KB")
 
     for name, fn in (("sfx_cast", render_cast), ("sfx_catch", render_catch),
-                     ("sfx_click", render_click), ("sfx_win", render_win)):
+                     ("sfx_click", render_click), ("sfx_win", render_win),
+                     ("sfx_prop", render_prop)):
         data = fn()
         size = write_mp3(os.path.join(OUT, name + ".mp3"), data, kbps=96)
         print(f"{name+'.mp3':14s} {len(data)/SR:5.2f}s  {size/1024:6.1f} KB")

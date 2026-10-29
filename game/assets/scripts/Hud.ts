@@ -1,11 +1,28 @@
 import { Node, Graphics, UITransform, Color, Label, HorizontalTextAlignment, VerticalTextAlignment } from 'cc';
-import { DESIGN } from './GameConfig';
-import { PAL, col, rectD, roundRectD, circleD, moveToD, lineToD } from './DayNight';
+import { DESIGN, VIEW } from './GameConfig';
+import { PAL, col, rectD, roundRectD, circleD, ellipseD, moveToD, lineToD } from './DayNight';
 
 /**
- * HUD 与结算面板。全部走「米色牌匾 + 墨字」的新中式样式：
- * 底板用 Graphics 画一次，数值用 Label 每帧改字符串（不重建底板）。
+ * HUD 与结算面板。
+ *
+ * 样式按视觉方案重做过一版：原来是「米色木牌匾 + 金线 + 圆钉」的新中式，
+ * 压在亮蓝的天空上又土又闷；现在是**绿色胶囊 + 白色圆角卡片**，
+ * 底板一次画死，数值用 Label 每帧改字符串（不重建底板）。
+ *
+ * 三处布局约束：
+ *  - 左下一排的宽度必须收在 192px 以内 —— 换装按钮钉在 `VIEW.left + 200`，
+ *    卡片再宽就会把它盖住；
+ *  - 时间卡贴**可见区域**的右边缘（VIEW.right），不是设计宽度的右边缘：
+ *    工程按 FIXED_HEIGHT 适配，宽屏上可见范围比 1280 宽，写死 DESIGN.w 会浮在画面中间；
+ *  - 牌匾全部画在不透明底上，所以字可以固定用深色，不用跟着昼夜换色。
  */
+
+const PAD = 24;
+const LV = { w: 104, h: 34, y: 14 };
+const TARGET = { w: 168, h: 68, y: 58 };
+const COIN = { w: 120, h: 38, y: 134 };
+const TIME = { w: 156, h: 58, y: 14, barY: 78 };
+
 export class Hud {
     readonly node: Node;
     private g: Graphics;
@@ -14,7 +31,9 @@ export class Hud {
     private lbCoin!: Label;
     private lbLevel!: Label;
     private lbTime!: Label;
+    private t1!: Label;
     private barG!: Graphics;
+    private barNode!: Node;
 
     private overlay!: Node;
     private ovTitle!: Label;
@@ -27,7 +46,6 @@ export class Hud {
     private lastTime = '';
     private lastLow = false;
     private lastFrac = -1;
-    private lastDim = false;
 
     constructor(parent: Node) {
         this.node = new Node('Hud');
@@ -36,62 +54,104 @@ export class Hud {
         this.node.setParent(parent);
         this.g = this.node.addComponent(Graphics);
 
+        // 时间条单独一个节点：位置跟可见宽度走，重排时只清它一个
+        this.barNode = new Node('TimeBar');
+        this.barNode.layer = this.node.layer;
+        this.barNode.addComponent(UITransform).setContentSize(DESIGN.w, DESIGN.h);
+        this.barNode.setParent(this.node);
+        this.barG = this.barNode.addComponent(Graphics);
+
         this.drawPlaques();
         this.buildLabels();
         this.buildOverlay();
     }
 
+    /** 可见宽度变了：底板和文字重新摆一遍 */
+    relayout(): void {
+        this.drawPlaques();
+        this.layoutLabels();
+        this.lastFrac = -1; // 强制下一帧重画时间条
+    }
+
     // ================= 底板 =================
 
-    /** 米色牌匾：木框 + 金线 + 两端圆钉 */
-    private plaque(x: number, y: number, w: number, h: number): void {
+    /** 白色圆角卡片：底下垫一层软阴影，上面留 1px 内高光 */
+    private card(x: number, y: number, w: number, h: number, r: number): void {
         const g = this.g;
-
-        g.fillColor = new Color(70, 52, 32, 46);
-        roundRectD(g, x + 2, y + 3, w, h, 9);
+        g.fillColor = new Color(26, 64, 70, 38);
+        roundRectD(g, x + 1, y + 3, w, h, r);
         g.fill();
-
-        g.fillColor = col(PAL.plaque);
-        roundRectD(g, x, y, w, h, 9);
+        g.fillColor = new Color(255, 255, 255, 238);
+        roundRectD(g, x, y, w, h, r);
         g.fill();
-
-        g.strokeColor = col(PAL.woodDark);
-        g.lineWidth = 3;
-        roundRectD(g, x, y, w, h, 9);
+        g.strokeColor = new Color(214, 240, 216, 255);
+        g.lineWidth = 2;
+        roundRectD(g, x, y, w, h, r);
         g.stroke();
-
-        g.strokeColor = new Color(201, 161, 90, 217);
-        g.lineWidth = 1.2;
-        roundRectD(g, x + 4.5, y + 4.5, w - 9, h - 9, 6);
-        g.stroke();
-
-        g.fillColor = new Color(139, 106, 74, 217);
-        circleD(g, x + 10, y + h / 2, 2.4);
-        g.fill();
-        circleD(g, x + w - 10, y + h / 2, 2.4);
-        g.fill();
     }
 
     private drawPlaques(): void {
-        this.plaque(24, 20, 268, 48);          // 通关目标
-        this.plaque(24, 78, 168, 42);          // 金币
-        this.plaque(DESIGN.w - 200, 20, 176, 48);  // 时间
+        const g = this.g;
+        g.clear();
+        const lx = VIEW.left + PAD;
+        const rx = VIEW.right - PAD;
 
-        // 金币图标
-        this.g.fillColor = new Color(196, 142, 54, 242);
-        circleD(this.g, 50, 99, 11);
-        this.g.fill();
-        this.g.strokeColor = new Color(140, 96, 30, 230);
-        this.g.lineWidth = 2;
-        circleD(this.g, 50, 99, 11);
-        this.g.stroke();
+        // ---- 1. 关卡：绿色胶囊 ----
+        g.fillColor = new Color(26, 64, 70, 34);
+        roundRectD(g, lx + 1, LV.y + 3, LV.w, LV.h, LV.h / 2);
+        g.fill();
+        g.fillColor = col(PAL.green);
+        roundRectD(g, lx, LV.y, LV.w, LV.h, LV.h / 2);
+        g.fill();
+        // 顶部那道浅色高光，让胶囊看起来是鼓的
+        g.fillColor = new Color(255, 255, 255, 58);
+        roundRectD(g, lx + 4, LV.y + 3, LV.w - 8, 12, 6);
+        g.fill();
 
-        // 时间条底
-        const barNode = new Node('TimeBar');
-        barNode.layer = this.node.layer;
-        barNode.addComponent(UITransform).setContentSize(DESIGN.w, DESIGN.h);
-        barNode.setParent(this.node);
-        this.barG = barNode.addComponent(Graphics);
+        // ---- 2. 通关目标：白卡 + 底部进度条底槽 ----
+        this.card(lx, TARGET.y, TARGET.w, TARGET.h, 16);
+        g.fillColor = new Color(226, 242, 228, 255);
+        roundRectD(g, lx + 16, TARGET.y + 54, TARGET.w - 32, 6, 3);
+        g.fill();
+
+        // ---- 3. 金币：白胶囊 + 金币 ----
+        this.card(lx, COIN.y, COIN.w, COIN.h, COIN.h / 2);
+        g.fillColor = col(PAL.gold);
+        circleD(g, lx + 23, COIN.y + COIN.h / 2, 12);
+        g.fill();
+        g.strokeColor = new Color(216, 160, 46, 255);
+        g.lineWidth = 2;
+        circleD(g, lx + 23, COIN.y + COIN.h / 2, 12);
+        g.stroke();
+        g.fillColor = new Color(255, 246, 206, 240);
+        ellipseD(g, lx + 19, COIN.y + COIN.h / 2 - 4, 4, 3);
+        g.fill();
+
+        // ---- 4. 时间：白卡 + 表盘 ----
+        const tx = rx - TIME.w;
+        this.card(tx, TIME.y, TIME.w, TIME.h, 16);
+        const cx = tx + 28;
+        const cy = TIME.y + TIME.h / 2;
+        g.fillColor = col(PAL.greenLight);
+        circleD(g, cx, cy, 14);
+        g.fill();
+        g.strokeColor = col(PAL.green);
+        g.lineWidth = 2.4;
+        circleD(g, cx, cy, 14);
+        g.stroke();
+        g.lineCap = Graphics.LineCap.ROUND;
+        g.lineWidth = 2.2;
+        moveToD(g, cx, cy);
+        lineToD(g, cx, cy - 8);
+        g.stroke();
+        moveToD(g, cx, cy);
+        lineToD(g, cx + 6.5, cy + 3);
+        g.stroke();
+
+        // 时间条底槽
+        g.fillColor = new Color(226, 242, 228, 255);
+        roundRectD(g, tx, TIME.barY, TIME.w, 6, 3);
+        g.fill();
     }
 
     private makeLabel(text: string, size: number, color: Color, align: HorizontalTextAlignment): Label {
@@ -112,21 +172,28 @@ export class Hud {
 
     private buildLabels(): void {
         const ink = col(PAL.ink);
+        const green = col(PAL.greenDark);
 
-        const t1 = this.makeLabel('通关目标', 19, new Color(120, 96, 64, 230), HorizontalTextAlignment.LEFT);
-        t1.node.setPosition(24 + 22 - DESIGN.w / 2, DESIGN.h / 2 - 44, 0);
-
+        this.t1 = this.makeLabel('通关目标', 13, new Color(green.r, green.g, green.b, 210), HorizontalTextAlignment.LEFT);
         this.lbTarget = this.makeLabel('0 / 600', 26, ink, HorizontalTextAlignment.LEFT);
-        this.lbTarget.node.setPosition(24 + 116 - DESIGN.w / 2, DESIGN.h / 2 - 44, 0);
+        this.lbCoin = this.makeLabel('0', 22, ink, HorizontalTextAlignment.LEFT);
+        this.lbLevel = this.makeLabel('第 1 关', 17, new Color(255, 255, 255, 255), HorizontalTextAlignment.CENTER);
+        this.lbTime = this.makeLabel('1:00', 30, ink, HorizontalTextAlignment.LEFT);
 
-        this.lbCoin = this.makeLabel('金币 0', 22, ink, HorizontalTextAlignment.LEFT);
-        this.lbCoin.node.setPosition(24 + 46 - DESIGN.w / 2, DESIGN.h / 2 - 99, 0);
+        this.layoutLabels();
+    }
 
-        this.lbLevel = this.makeLabel('第 1 关', 17, new Color(47, 59, 58, 190), HorizontalTextAlignment.LEFT);
-        this.lbLevel.node.setPosition(24 + 4 - DESIGN.w / 2, DESIGN.h / 2 - 142, 0);
+    /** 文字按可见区域的左右边缘摆：窄屏时左边一组不会被切掉 */
+    private layoutLabels(): void {
+        const lx = VIEW.left + PAD;
+        const rx = VIEW.right - PAD;
+        const cy = DESIGN.h / 2;
 
-        this.lbTime = this.makeLabel('1:00', 28, ink, HorizontalTextAlignment.LEFT);
-        this.lbTime.node.setPosition(DESIGN.w - 200 + 52 - DESIGN.w / 2, DESIGN.h / 2 - 44, 0);
+        this.lbLevel.node.setPosition(lx + LV.w / 2 - DESIGN.w / 2, cy - (LV.y + LV.h / 2), 0);
+        this.t1.node.setPosition(lx + 16 - DESIGN.w / 2, cy - (TARGET.y + 18), 0);
+        this.lbTarget.node.setPosition(lx + 16 - DESIGN.w / 2, cy - (TARGET.y + 38), 0);
+        this.lbCoin.node.setPosition(lx + 42 - DESIGN.w / 2, cy - (COIN.y + COIN.h / 2), 0);
+        this.lbTime.node.setPosition(rx - TIME.w + 54 - DESIGN.w / 2, cy - (TIME.y + TIME.h / 2), 0);
     }
 
     // ================= 每帧更新 =================
@@ -136,7 +203,7 @@ export class Hud {
             this.lastScore = score;
             this.lastTarget = target;
             this.lbTarget.string = `${score} / ${target}`;
-            this.lbCoin.string = `金币 ${score}`;
+            this.lbCoin.string = `${score}`;
         }
         if (level !== this.lastLevel) {
             this.lastLevel = level;
@@ -151,39 +218,30 @@ export class Hud {
             this.lastTime = txt;
             this.lastLow = low;
             this.lbTime.string = txt;
-            this.lbTime.color = low ? new Color(192, 69, 62, 255) : col(PAL.ink);
+            this.lbTime.color = low ? new Color(214, 82, 74, 255) : col(PAL.ink);
         }
 
-        // 时间条：只在刻度变化时重绘，省掉每帧重建 Graphics
+        // 两条进度只在刻度变化时重绘，省掉每帧重建 Graphics
         const frac = Math.max(0, Math.min(1, timeLeft / total));
-        if (Math.abs(frac - this.lastFrac) < 0.004 && low === this.lastLow && this.lastFrac >= 0) {
+        if (Math.abs(frac - this.lastFrac) < 0.004 && this.lastFrac >= 0) {
             return;
         }
         this.lastFrac = frac;
         const g = this.barG;
         g.clear();
-        const bw = 156;
-        const bx = DESIGN.w - 190;
-        const by = 76;
-        g.fillColor = new Color(90, 70, 48, 56);
-        roundRectD(g, bx, by, bw, 7, 3.5);
-        g.fill();
-        g.fillColor = low ? new Color(192, 69, 62, 255) : new Color(111, 174, 158, 255);
-        roundRectD(g, bx, by, bw * frac, 7, 3.5);
-        g.fill();
-    }
 
-    /**
-     * 关卡名没有牌匾托底，直接压在水面上，夜里必须换成米白才看得见。
-     * 三块牌匾上的数值不受影响（米色底 + 墨字，昼夜都清楚）。
-     */
-    setLight(light: number): void {
-        const dim = light < 0.45;
-        if (dim === this.lastDim) {
-            return;
-        }
-        this.lastDim = dim;
-        this.lbLevel.color = dim ? new Color(238, 241, 232, 205) : new Color(47, 59, 58, 190);
+        // 时间条
+        const tx = VIEW.right - PAD - TIME.w;
+        g.fillColor = low ? new Color(214, 82, 74, 255) : col(PAL.green);
+        roundRectD(g, tx, TIME.barY, TIME.w * frac, 6, 3);
+        g.fill();
+
+        // 目标进度条（画在目标卡里那条底槽上）
+        const lx = VIEW.left + PAD;
+        const goal = this.lastTarget > 0 ? Math.min(1, this.lastScore / this.lastTarget) : 0;
+        g.fillColor = col(PAL.green);
+        roundRectD(g, lx + 16, TARGET.y + 54, (TARGET.w - 32) * goal, 6, 3);
+        g.fill();
     }
 
     // ================= 结算面板 =================
@@ -196,49 +254,47 @@ export class Hud {
         const g = this.overlay.addComponent(Graphics);
 
         // 压暗
-        g.fillColor = new Color(30, 40, 40, 107);
+        g.fillColor = new Color(18, 44, 56, 130);
         rectD(g, 0, 0, DESIGN.w, DESIGN.h);
         g.fill();
 
-        const pw = 580;
-        const ph = 330;
+        const pw = 560;
+        const ph = 320;
         const px = (DESIGN.w - pw) / 2;
         const py = (DESIGN.h - ph) / 2;
 
-        // 卷轴主体
-        g.fillColor = new Color(70, 52, 32, 56);
-        roundRectD(g, px + 3, py + 5, pw, ph, 14);
+        // 白色圆角面板
+        g.fillColor = new Color(16, 40, 50, 70);
+        roundRectD(g, px + 2, py + 6, pw, ph, 24);
         g.fill();
-        g.fillColor = col(PAL.plaque);
-        roundRectD(g, px, py, pw, ph, 14);
+        g.fillColor = new Color(255, 255, 255, 250);
+        roundRectD(g, px, py, pw, ph, 24);
         g.fill();
-        g.strokeColor = col(PAL.woodDark);
-        g.lineWidth = 3.5;
-        roundRectD(g, px, py, pw, ph, 14);
-        g.stroke();
-        g.strokeColor = new Color(201, 161, 90, 230);
-        g.lineWidth = 1.4;
-        roundRectD(g, px + 7, py + 7, pw - 14, ph - 14, 10);
+        g.strokeColor = new Color(214, 240, 216, 255);
+        g.lineWidth = 3;
+        roundRectD(g, px, py, pw, ph, 24);
         g.stroke();
 
-        // 上下轴头
-        for (const y of [py - 6, py + ph - 12]) {
-            g.fillColor = col(PAL.woodLight);
-            roundRectD(g, px - 12, y, pw + 24, 18, 9);
-            g.fill();
-            g.strokeColor = new Color(60, 42, 26, 150);
-            g.lineWidth = 1.5;
-            roundRectD(g, px - 12, y, pw + 24, 18, 9);
-            g.stroke();
-        }
+        // 顶部绿色标题带（压在面板上沿，做出「卡片标签」的感觉）
+        const bw = 300;
+        const bh = 58;
+        g.fillColor = new Color(16, 40, 50, 60);
+        roundRectD(g, (DESIGN.w - bw) / 2 + 1, py - 24, bw, bh, 29);
+        g.fill();
+        g.fillColor = col(PAL.green);
+        roundRectD(g, (DESIGN.w - bw) / 2, py - 27, bw, bh, 29);
+        g.fill();
+        g.fillColor = new Color(255, 255, 255, 58);
+        roundRectD(g, (DESIGN.w - bw) / 2 + 6, py - 24, bw - 12, 18, 9);
+        g.fill();
 
-        this.ovTitle = this.makeLabel('', 42, new Color(138, 90, 44, 255), HorizontalTextAlignment.CENTER);
-        this.ovTitle.node.setPosition(0, DESIGN.h / 2 - (py + 72), 0);
+        this.ovTitle = this.makeLabel('', 34, new Color(255, 255, 255, 255), HorizontalTextAlignment.CENTER);
+        this.ovTitle.node.setPosition(0, DESIGN.h / 2 - (py + 2), 0);
 
-        this.ovBody = this.makeLabel('', 21, new Color(47, 59, 58, 230), HorizontalTextAlignment.CENTER);
-        this.ovBody.node.setPosition(0, DESIGN.h / 2 - (py + 158), 0);
+        this.ovBody = this.makeLabel('', 21, new Color(38, 62, 70, 235), HorizontalTextAlignment.CENTER);
+        this.ovBody.node.setPosition(0, DESIGN.h / 2 - (py + 150), 0);
 
-        this.ovHint = this.makeLabel('', 17, new Color(47, 59, 58, 128), HorizontalTextAlignment.CENTER);
+        this.ovHint = this.makeLabel('', 16, new Color(44, 112, 56, 190), HorizontalTextAlignment.CENTER);
         this.ovHint.node.setPosition(0, DESIGN.h / 2 - (py + ph - 34), 0);
 
         // 把 label 挪到 overlay 下，隐藏时一起隐藏
@@ -252,11 +308,15 @@ export class Hud {
     showOverlay(title: string, lines: string[], hint: string): void {
         this.ovTitle.string = title;
         this.ovBody.string = lines.join('\n');
-        this.ovBody.lineHeight = 34;
-        // 网页版第一行固定画在 py+158，多行往下排；Label 整体居中，所以
+        // 5 行以上按 34px 行距会顶到提示语上，收一点行距并把整块往上挪
+        const many = lines.length >= 5;
+        const lh = many ? 28 : 34;
+        const top = many ? 132 : 142;
+        this.ovBody.lineHeight = lh;
+        // 第一行固定画在 py+top，多行往下排；Label 整体居中，所以
         // 中心要下移 (n-1)/2 行
-        const py = (DESIGN.h - 330) / 2;
-        this.ovBody.node.setPosition(0, DESIGN.h / 2 - (py + 158 + (lines.length - 1) * 17), 0);
+        const py = (DESIGN.h - 320) / 2;
+        this.ovBody.node.setPosition(0, DESIGN.h / 2 - (py + top + ((lines.length - 1) * lh) / 2), 0);
         this.ovHint.string = hint;
         this.overlay.active = true;
     }
@@ -265,3 +325,4 @@ export class Hud {
         this.overlay.active = false;
     }
 }
+

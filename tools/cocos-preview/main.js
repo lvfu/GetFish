@@ -6,13 +6,13 @@
  * 用来在没有编辑器的情况下核对 Cocos 侧的画面。
  */
 import {
-    Node, UITransform, Graphics, Label, Sprite, Canvas, HorizontalTextAlignment,
+    Node, UITransform, Graphics, Label, Sprite, Canvas, HorizontalTextAlignment, UIOpacity,
 } from 'cc';
 import { GameRoot } from './out/GameRoot.js';
 import { DAY_LEN } from './out/DayNight.js';
 
-const W = 1280;
-const H = 720;
+let W = 1280;
+let H = 720;
 
 const cv = document.getElementById('stage');
 cv.width = W;
@@ -126,6 +126,17 @@ function buildPath(p, T) {
                 ctx.closePath();
                 break;
             }
+            case 'A': {
+                // arc(cx, cy, r, a0, a1)：局部坐标 y 向上，屏幕 y 向下，角度照算即可
+                const [cx, cy, r, a0, a1] = [c[1], c[2], c[3], c[4], c[5]];
+                const n = Math.max(8, Math.ceil(Math.abs(a1 - a0) * 12));
+                started = false;
+                for (let i = 0; i <= n; i++) {
+                    const a = a0 + ((a1 - a0) * i) / n;
+                    line(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+                }
+                break;
+            }
             default:
                 break;
         }
@@ -134,8 +145,10 @@ function buildPath(p, T) {
 
 // ================= 绘制 =================
 
-function paintGraphics(g, wx, wy, deg, sx, sy) {
+function paintGraphics(g, wx, wy, deg, sx, sy, alpha = 1) {
     const T = makeXf(wx, wy, deg, sx, sy);
+    ctx.save();
+    ctx.globalAlpha = alpha;
     for (const op of g._ops) {
         buildPath(op.p, T);
         if (op.t === 'fill') {
@@ -149,12 +162,14 @@ function paintGraphics(g, wx, wy, deg, sx, sy) {
             ctx.stroke();
         }
     }
+    ctx.restore();
 }
 
-function paintLabel(l, node, wx, wy, deg) {
+function paintLabel(l, node, wx, wy, deg, alpha = 1) {
     const ut = node.getComponent(UITransform);
     const ax = ut ? ut.anchor.x : 0.5;
     ctx.save();
+    ctx.globalAlpha = alpha;
     ctx.translate(W / 2 + wx, H / 2 - wy);
     ctx.rotate((-deg * Math.PI) / 180);
     ctx.fillStyle = cssColor(l.color);
@@ -170,7 +185,7 @@ function paintLabel(l, node, wx, wy, deg) {
     ctx.restore();
 }
 
-function paintSprite(s, node, wx, wy, deg, sx, sy) {
+function paintSprite(s, node, wx, wy, deg, sx, sy, alpha = 1) {
     const sf = s.spriteFrame;
     if (!sf || !sf.image) return;
     const ut = node.getComponent(UITransform);
@@ -179,6 +194,7 @@ function paintSprite(s, node, wx, wy, deg, sx, sy) {
     const ax = ut ? ut.anchor.x : 0.5;
     const ay = ut ? ut.anchor.y : 0.5;
     ctx.save();
+    ctx.globalAlpha = alpha;
     ctx.translate(W / 2 + wx, H / 2 - wy);
     ctx.rotate((-deg * Math.PI) / 180);
     ctx.scale(sx, sy);
@@ -190,20 +206,24 @@ function paintSprite(s, node, wx, wy, deg, sx, sy) {
     ctx.restore();
 }
 
-function drawNode(node, px, py, pdeg, psx, psy) {
+function drawNode(node, px, py, pdeg, psx, psy, pAlpha = 1) {
     if (node.active === false) return;
     const wx = px + node._pos.x;
     const wy = py + node._pos.y;
     const deg = pdeg + (node.angle || 0);
     const sx = psx * node._scale.x;
     const sy = psy * node._scale.y;
+    // UIOpacity 逐层相乘：雾层的淡入淡出靠它拨，和引擎语义一致
+    const op = node.getComponent(UIOpacity);
+    const alpha = pAlpha * (op ? op.opacity / 255 : 1);
+    if (alpha <= 0.004) return;
 
     for (const c of node._comps) {
-        if (c instanceof Graphics) paintGraphics(c, wx, wy, deg, sx, sy);
-        else if (c instanceof Label) paintLabel(c, node, wx, wy, deg);
-        else if (c instanceof Sprite) paintSprite(c, node, wx, wy, deg, sx, sy);
+        if (c instanceof Graphics) paintGraphics(c, wx, wy, deg, sx, sy, alpha);
+        else if (c instanceof Label) paintLabel(c, node, wx, wy, deg, alpha);
+        else if (c instanceof Sprite) paintSprite(c, node, wx, wy, deg, sx, sy, alpha);
     }
-    for (const ch of node.children) drawNode(ch, wx, wy, deg, sx, sy);
+    for (const ch of node.children) drawNode(ch, wx, wy, deg, sx, sy, alpha);
 }
 
 // ================= 起场景 =================
@@ -217,10 +237,15 @@ game.node = root;
 game.onLoad();
 game.start();
 
+// 调试用：QA 脚本要直接拨状态（定格摆角、打开换装列表等）
+window.__game__ = game;
+
 function render() {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, W, H);
-    drawNode(root, 0, 0, 0, 1, 1);
+    // Canvas 节点自身的位置是「画布在屏幕上的位置」（= 可见区域中心），
+    // 不是内容偏移。这里把它抵消掉，否则内容会被整体挪走。
+    drawNode(root, -root._pos.x, -root._pos.y, 0, 1, 1);
 }
 
 function waitReady() {
@@ -264,6 +289,9 @@ window.__shot__ = (phase, opts = {}) => {
     };
 };
 
+/** 手动重画一帧（QA 页改完状态后想立刻看到时用） */
+window.__render__ = render;
+
 /** 推进若干秒（让鱼游动、时间流逝） */
 window.__tick__ = (sec) => {
     game.hud.hideOverlay();
@@ -271,6 +299,18 @@ window.__tick__ = (sec) => {
     for (let i = 0; i < n; i++) game.update(0.05);
     render();
     return { timeLeft: Math.round(game.timeLeft), fishes: game.fishes.length };
+};
+
+/**
+ * 改画布尺寸，用来模拟不同屏幕比例（FIXED_HEIGHT：高度恒 720，宽度变化）。
+ * 只改尺寸不够，还要让 view 的可见尺寸、Canvas 节点、相机一起跟着变，
+ * 所以 QA 页改完尺寸后要再调一次 game.onResize()。
+ */
+window.__setStageSize__ = (w, h) => {
+    W = w;
+    H = h;
+    cv.width = w;
+    cv.height = h;
 };
 
 waitReady().then(() => {

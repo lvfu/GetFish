@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>QA 定格</title>
+<style>html, body { margin: 0; background: #11161a; } canvas { display: block; }</style>
+</head>
+<body>
+<canvas id="stage" width="1280" height="720"></canvas>
+<script type="importmap">
+{ "imports": { "cc": "./cc-shim.js" } }
+</script>
+<script type="module">
+/**
+ * 无 playwright 时的定格截图页：跑真实脚本，用 URL 参数把画面拨到指定状态，
+ * 再用 `msedge --headless --screenshot=...` 截一张图。
+ *
+ *   ?angle=-42            定格摆角（度）
+ *   &phase=0.72           定格昼夜相位（0~1，0.5 是深夜）
+ *   &picker=1             展开换装列表
+ *   &cast=1&castt=0.35    出钩并推进 0.35 秒
+ *   &catch=shark          把指定鱼放到钩子正下方并钩住，收一点线（看鱼和钩爪贴不贴）
+ *   &princess=5           换第 6 套角色
+ *   &props=1              同屏摆出全部道具（减速 / 暂停 / 加时 / 大雾 / 断线），核对外观
+ *   &adv=2.4              配合 &props=1：摆好后推进几秒，看徽章漂到哪儿了（幅度合不合适）
+ *   &catchprop=slow       把道具摆在钩子正下方并真的钩住，看道具挂在钩爪上的位置
+ *   &prop=slow|pause|time|fog|break  立刻吃到一个道具，看 buff 状态条 / 暂停遮罩 / 加时 / 雾层 / 线断
+ *   &propt=0.45           吃到道具后再推进多少秒（雾要 0.35s 才淡入到位，断线要看完线消失）
+ *   &pauset=1.4           把暂停倒计时拨到指定秒数
+ *   &proptest=1           只跑数值：验证加时、减速、暂停冻结是否生效（写在 title 里）
+ *   &beasttest=1          只跑数值：负面生物从屏幕外进场 → 横游 → 自己离场
+ *   &spawnrate=1          只跑数值：自然节奏跑 55 秒，数一共刷了几个、几个是负面
+ *   &vw=1560              模拟宽屏（FIXED_HEIGHT：高恒 720，宽变化），用来验证背景铺满、HUD 贴边。
+ *                         小于 720 就是竖屏（如 &vw=333 相当于 390×844 的手机），会出竖屏提示层
+ *   &gatebtn=1            竖屏提示层里强制显示「全屏并横屏」按钮（预览器默认隐藏）
+ *   &sim=1                只跑数值：输出出钩 / 收线耗时（写在 title 里）
+ */
+import './main.js';
+import { TUNE, PROP, ZONE, BEAST } from './out/GameConfig.js';
+import { __setVisibleSize__, sys, screen } from 'cc';
+
+const q = new URLSearchParams(location.search);
+const phase = Number(q.get('phase') || 0.32);
+const tick = Number(q.get('tick') || 0);
+const princess = q.get('princess');
+const angleDeg = q.get('angle');
+
+function go() {
+    const g = window.__game__;
+
+    // 先改可见宽度：背景、HUD、鱼群进出场都以它为准
+    const vw = Number(q.get('vw') || 0);
+    if (vw > 0) {
+        __setVisibleSize__(vw, 720);
+        window.__setStageSize__(vw, 720);
+        g.onResize();
+    }
+    if (q.get('gatebtn') === '1') {
+        // 预览器默认不支持全屏，这里强行打开，用来核对按钮排版
+        sys.isBrowser = true;
+        screen.supportsFullScreen = true;
+        g.onResize();
+    }
+
+    const opts = { start: q.get('start') !== '0' };
+    if (princess !== null) opts.princess = Number(princess);
+    window.__shot__(phase, opts);
+
+    if (angleDeg !== null) {
+        // 反解 swingT，让 aim 分支算出来的角度正好等于 angle 参数
+        const rad = Math.max(-1, Math.min(1, (Number(angleDeg) * Math.PI) / 180 / TUNE.swingMax));
+        g.hook.swingT = Math.asin(rad) / TUNE.swingOmega;
+        g.hook.update(0, g.fishes);
+    }
+    if (tick > 0) window.__tick__(tick);
+    if (q.get('picker') === '1') g.picker.openList();
+    if (q.get('cast') === '1') {
+        g.hook.fire();
+        window.__tick__(Number(q.get('castt') || 0.3));
+    }
+
+    if (q.get('balance') === '1') {
+        // 会瞄准的玩家跑满一关：钩子摆到对着某条鱼就出钩
+        g.startGame();
+        const dt = 1 / 60;
+        let casts = 0;
+        while (g.mode === 'aim' && g.timeLeft > 0) {
+            if (g.hook.state === 'aim') {
+                const a = g.hook.angle;
+                let fire = false;
+                for (const f of g.fishes) {
+                    const ang = Math.atan2(f.x - g.hook.originX, f.y - g.hook.originY);
+                    if (Math.abs(ang - a) < 0.09) { fire = true; break; }
+                }
+                if (fire && g.hook.fire()) casts++;
+            }
+            g.update(dt);
+        }
+        document.title = 'BAL score=' + g.score + ' casts=' + casts
+            + ' left=' + Math.round(g.timeLeft) + ' mode=' + g.mode;
+        return;
+    }
+
+    if (q.get('proptest') === '1') {
+        // 三种道具的数值验证：加时是否真加、减速是否真慢、暂停是否真把计时冻住
+        const out = [];
+        const dt = 1 / 60;
+        g.startGame();
+
+        const t0 = g.timeLeft;
+        g.applyProp('time', 640, 500);
+        out.push('time +' + (g.timeLeft - t0).toFixed(0) + 's');
+
+        const f = g.fishes[0];
+        const x0 = f.x;
+        for (let i = 0; i < 60; i++) g.update(dt);
+        const normal = Math.abs(f.x - x0);
+        g.applyProp('slow', 640, 500);
+        const x1 = f.x;
+        for (let i = 0; i < 60; i++) g.update(dt);
+        const slow = Math.abs(f.x - x1);
+        out.push('fish 1s normal=' + normal.toFixed(0) + 'px slow=' + slow.toFixed(0) + 'px');
+
+        const tl = g.timeLeft;
+        g.applyProp('pause', 640, 500);
+        for (let i = 0; i < 60; i++) g.update(dt);
+        out.push('pause1s dtime=' + (tl - g.timeLeft).toFixed(2) + ' left=' + g.pauseT.toFixed(2));
+        for (let i = 0; i < 150; i++) g.update(dt);
+        out.push('after dtime=' + (tl - g.timeLeft).toFixed(2) + ' paused=' + (g.pauseT > 0));
+
+        // 刷 200 个道具，确认全部落在「竿尖 ±swingMax 的出钩扇形」里
+        g.props.clear();
+        let outCone = 0;
+        let badDepth = 0;
+        for (let i = 0; i < 200; i++) {
+            const it = g.props.spawn('time');
+            const a = Math.abs(Math.atan2(it.x - g.hook.originX, it.y - g.hook.originY));
+            if (a > TUNE.swingMax) outCone++;
+            if (it.y < PROP.yMin || it.y > PROP.yMax) badDepth++;
+        }
+        g.props.clear();
+        out.push('spawn200 outOfCone=' + outCone + ' badDepth=' + badDepth);
+
+        // 徽章漂移：必须真的在左右动，而且动完之后还在出钩扇形里
+        g.props.clear();
+        g.props.gap = 9999;
+        const chips = [];
+        for (let i = 0; i < 60; i++) {
+            chips.push(g.props.spawn(['slow', 'pause', 'time'][i % 3]));
+        }
+        const x0s = chips.map((it) => it.x);
+        let outDrift = 0;
+        for (let i = 0; i < 6 * 60; i++) {
+            g.props.update(1 / 60);
+            for (const it of chips) {
+                const a = Math.abs(Math.atan2(it.x - g.hook.originX, it.y - g.hook.originY));
+                if (a > TUNE.swingMax) outDrift++;
+            }
+        }
+        const moved = chips.filter((it, i) => Math.abs(it.x - x0s[i]) > 2).length;
+        const ampMax = Math.max(...chips.map((it) => it.driftAmp));
+        out.push('drift moved=' + moved + '/60 ampMax=' + ampMax.toFixed(0) + ' outCone=' + outDrift);
+        g.props.clear();
+
+        // 负面密度：连刷 400 个（走 rollKind 的抽签 + 防连空），看负面占比和最长连空
+        let nBeast = 0;
+        let run = 0;
+        let maxRun = 0;
+        for (let i = 0; i < 400; i++) {
+            const it = g.props.spawn();
+            if (it.beast) {
+                nBeast++;
+                run = 0;
+            } else {
+                run++;
+                maxRun = Math.max(maxRun, run);
+            }
+        }
+        g.props.clear();
+        out.push('mix beast=' + (nBeast / 4).toFixed(0) + '% maxDryRun=' + maxRun + '(want<=3)');
+
+        // 抓取闭环：钩住 → 收上来 → 效果在这一刻生效
+        g.startGame();
+        g.fishes.length = 0;
+        g.props.clear();
+        g.props.gap = 9999;
+        const held = g.props.spawn('slow');
+        held.baseX = g.hook.originX;
+        held.driftAmp = 0;
+        held.x = g.hook.originX;
+        held.baseY = 560;
+        held.y = 560;
+        held.node.setPosition(held.x - 640, 360 - 560, 0);
+        g.hook.reset();
+        g.hook.swingT = 0;
+        g.hook.update(0, g.fishes);
+        g.hook.fire();
+        let n2 = 0;
+        while (g.slowT <= 0 && n2++ < 900) g.update(dt);
+        out.push('carry slow ' + (n2 * dt).toFixed(2) + 's slowT=' + g.slowT.toFixed(1)
+            + ' held=' + (g.hook.carryingProp ? 'yes' : 'no'));
+
+        document.title = 'PROP ' + out.join(' | ');
+        return;
+    }
+
+    if (q.get('fishtest') === '1') {
+        // 只跑数值：八条鱼的性格签名 —— 游速区间 / 纵向摆幅 / 收线耗时。
+        // 光看配置表说明不了「手感有没有区别」，得真的让它们游、真的拉一遍。
+        const dt = 1 / 60;
+        const rows = [];
+        const sig = new Set();
+        for (const key of Object.keys(g.table)) {
+            const zone = ZONE[key] || { y: [400, 500] };
+            const midY = (zone.y[0] + zone.y[1]) / 2;
+
+            // 1) 游 5 秒，按 0.2 秒窗口量速度，看走停的幅度
+            g.fishes.length = 0;
+            const f = g.spawnFish({ type: key, x: g.hook.originX - 200, y: midY, dir: 1 });
+            if (!f) {
+                rows.push(key + ':MISSING');
+                continue;
+            }
+            let lo = 1e9, hi = 0, px0 = f.x, acc = 0, yLo = 1e9, yHi = -1e9;
+            for (let i = 0; i < 5 * 60; i++) {
+                f.update(dt);
+                yLo = Math.min(yLo, f.y);
+                yHi = Math.max(yHi, f.y);
+                acc += dt;
+                if (acc >= 0.2) {
+                    const d = Math.abs(f.x - px0);
+                    // 换边的那一帧位移是「整屏」，不能算进速度
+                    if (d < 200) {
+                        const v = d / acc;
+                        lo = Math.min(lo, v);
+                        hi = Math.max(hi, v);
+                    }
+                    px0 = f.x;
+                    acc = 0;
+                }
+            }
+            const amp = (yHi - yLo) / 2;
+
+            // 2) 真的从固定深度拉一遍，量收线耗时
+            g.fishes.length = 0;
+            g.spawnFish({ type: key, x: g.hook.originX, y: midY, dir: 1 });
+            g.hook.reset();
+            g.hook.swingT = 0;
+            g.hook.update(0, g.fishes);
+            g.hook.fire();
+            // 出钩和收线分开计时：混在一起数的是「出钩 + 收线」，
+            // 鱼在深水里时出钩那 0.4 秒会把收线耗时算大
+            let n = 0;
+            while (g.hook.state === 'shoot' && n < 900) {
+                g.hook.update(dt, g.fishes);
+                n++;
+            }
+            const nCatch = n;
+            while (g.hook.state !== 'aim' && n < 1800) {
+                g.hook.update(dt, g.fishes);
+                n++;
+            }
+            const reel = (n - nCatch) * dt;
+
+            sig.add((f.def.pattern || 'cruise') + '|' + Math.round(amp) + '|' + key);
+            rows.push(key + ' v=' + lo.toFixed(0) + '~' + hi.toFixed(0)
+                + ' amp=' + amp.toFixed(0) + '/' + (f.def.wave === undefined ? 6 : f.def.wave)
+                + ' reel=' + reel.toFixed(2) + 's');
+        }
+        // 徽章 / 生物也要跟着慢下来：测一枚道具从深水拉上来的耗时
+        g.fishes.length = 0;
+        g.props.clear();
+        g.props.gap = 9999;
+        const it0 = g.props.spawn('slow');
+        it0.baseX = g.hook.originX;
+        it0.driftAmp = 0;
+        it0.x = g.hook.originX;
+        it0.baseY = 600;
+        it0.y = 600;
+        g.hook.reset();
+        g.hook.swingT = 0;
+        g.hook.update(0, g.fishes);
+        g.hook.fire();
+        let m = 0;
+        while (g.hook.state === 'shoot' && m < 900) {
+            g.hook.update(dt, g.fishes);
+            m++;
+        }
+        // 正常流程里「钩尖碰到道具」是在 GameRoot.update 里判定的，
+        // 这里只驱动 Hook，所以手动挂上来量收线
+        g.hook.latch(it0);
+        const mCatch = m;
+        while (g.hook.state !== 'aim' && m < 1800) {
+            g.hook.update(dt, g.fishes);
+            m++;
+        }
+        rows.push('badge reel=' + ((m - mCatch) * dt).toFixed(2) + 's'
+            + ' beastReel=' + BEAST.fog.reel + '/' + BEAST.break.reel + 'px/s');
+        g.props.clear();
+        document.title = 'FISH sig=' + sig.size + '/8 ' + rows.join(' | ');
+        return;
+    }
+
+    if (q.get('sim') === '1') {
+        // 出钩 / 收线耗时实测：固定角度竖直下钩，鱼摆在钩子正下方
+        const out = [];
+        const dt = 1 / 60;
+        const run = (type, fy) => {
+            g.fishes.length = 0;
+            if (type) g.spawnFish({ type: type, x: g.hook.originX, y: fy, dir: 1 });
+            g.hook.reset();
+            g.hook.swingT = 0;
+            g.hook.update(0, g.fishes);
+            g.hook.fire();
+            let n = 0;
+            while (g.hook.state === 'shoot' && n < 900) { g.hook.update(dt, g.fishes); n++; }
+            const cast = n * dt;
+            while (g.hook.state === 'retract' && n < 1800) { g.hook.update(dt, g.fishes); n++; }
+            return type
+                ? type + ' cast=' + cast.toFixed(2) + 's reel=' + ((n * dt) - cast).toFixed(2) + 's'
+                : 'empty cast=' + cast.toFixed(2) + 's';
+        };
+        out.push(run(null, 0));
+        out.push(run('shark', 620));
+        out.push(run('clownfish', 400));
+        document.title = 'SIM ' + out.join(' | ');
+        return;
+    }
+
+    g.hud.hideOverlay();
+
+    if (q.get('beasttest') === '1') {
+        // 只跑数值：生物必须从屏幕外进场、会横向游、游出屏幕后自己离场
+        const out = [];
+        g.props.clear();
+        g.props.gap = 9999;
+
+        const items = [g.props.spawn('fog'), g.props.spawn('break')];
+        out.push('isBeast=' + items.map((i) => (i.beast ? 'y' : 'n')).join(',') + '(want y,y)');
+        out.push('outsideX=' + items.map((i) => (i.x < 0 || i.x > 1280 ? 'y' : 'n')).join(',')
+            + '(want y,y)');
+
+        const x0 = items.map((i) => i.x);
+        // 每帧压住 gap：生物离场会触发 scheduleNext 重新排队，不压住的话
+        // 这 30 秒里会刷出新的道具，最后清点就不止「自己这两只」了
+        const step = (n) => {
+            for (let i = 0; i < n; i++) {
+                g.props.gap = 9999;
+                g.update(1 / 60);
+            }
+        };
+        step(60);                                                // 游 1 秒
+        out.push('swam=' + items.map((i, n) => (Math.abs(i.x - x0[n]) > 10 ? 'y' : 'n')).join(',')
+            + '(want y,y)');
+        out.push('stillInside=' + items.map((i) => (i.gone ? 'n' : 'y')).join(',') + '(want y,y)');
+
+        step(30 * 60);                                           // 再游 30 秒，早该出屏了
+        out.push('leftAlive=' + items.filter((i) => !i.gone).length + '(want 0)');
+        document.title = 'BEAST ' + out.join(' | ');
+        return;
+    }
+
+    if (q.get('spawnrate') === '1') {
+        // 自然节奏统计：不做任何干预，跑 55 秒，数一共刷了几个、其中几个是负面生物。
+        // 权重表看着再好，也得看实际刷出来的密度对不对。
+        g.startGame();
+        g.props.clear();
+        let total = 0;
+        let beast = 0;
+        let drying = 0;
+        let maxGap = 0;
+        const orig = g.props.spawn.bind(g.props);
+        g.props.spawn = (k) => {
+            const it = orig(k);
+            total++;
+            if (it.beast) {
+                beast++;
+                drying = 0;
+            } else {
+                drying++;
+                maxGap = Math.max(maxGap, drying);
+            }
+            return it;
+        };
+        let lastT = 0;
+        for (let i = 0; i < 55 * 60; i++) g.update(1 / 60);
+        lastT = 55;
+        document.title = 'RATE ' + lastT + 's total=' + total + ' beast=' + beast
+            + ' (' + Math.round((beast / Math.max(1, total)) * 100) + '%)'
+            + ' maxDryRun=' + maxGap
+            + ' | cfg gap=' + PROP.gapMin + '~' + PROP.gapMax + ' maxAlive=' + PROP.maxAlive;
+        return;
+    }
+
+    if (q.get('beast') === '1') {
+        // 两只负面生物摆在水面中间，核对外观：贴图 / 影子 / 头顶警示标 / 朝向
+        g.props.clear();
+        g.props.gap = 9999;
+        [['fog', 420], ['break', 880]].forEach((pair) => {
+            const it = g.props.spawn(pair[0]);
+            it.x = pair[1];
+            it.baseY = 500;
+            it.y = 500;
+            it.node.setPosition(it.x - 640, 360 - 500, 0);
+        });
+        const adv = Number(q.get('beastt') || 0);
+        for (let i = 0; i < Math.round(adv * 60); i++) g.update(1 / 60);
+        document.title = 'beast ' + g.props.list.map((p) => p.kind + '@' + Math.round(p.x)).join(' ');
+    }
+
+    if (q.get('props') === '1') {
+        // 五种道具一字排开，核对外观（徽章 / 图标 / 柔光 / 负面生物）。
+        // 加 &adv=2 推进几秒：徽章会带着漂移再动一段，用来看左右晃的幅度合不合适
+        g.props.clear();
+        g.props.gap = 9999;
+        const adv = Number(q.get('adv') || 0);
+        ['slow', 'pause', 'time', 'fog', 'break'].forEach((k, i) => {
+            const it = g.props.spawn(k);
+            it.baseX = 260 + i * 190;
+            it.x = it.baseX;
+            it.baseY = 520;
+            it.y = 520;
+            // 摆拍时先钉死位置核对图标；要看漂移就保留振幅
+            if (!adv) {
+                it.driftAmp = 0;
+            }
+            it.node.setPosition(it.x - 640, 360 - 520, 0);
+        });
+        if (adv > 0) {
+            for (let i = 0; i < Math.round(adv * 60); i++) g.props.update(1 / 60);
+        }
+    }
+
+    if (q.get('prop')) {
+        // 吃一个道具，看效果：slow → 顶部状态条，pause → 全屏遮罩，time → 时间牌匾变大，
+        // fog → 雾层，break → 线消失 + 状态条。fog/break 需要推进一点时间才看得出来，
+        // 用 &propt=0.45 之类把倒计时拨进去。
+        const kind = q.get('prop');
+        g.applyProp(kind, 640, 500);
+        if (q.get('pauset')) {
+            const left = Number(q.get('pauset'));
+            g.pauseT = left;
+            g.props.updatePause(left);
+        }
+        const adv = Number(q.get('propt') || 0);
+        for (let i = 0; i < Math.round(adv * 60); i++) g.update(1 / 60);
+        document.title = 'prop ' + kind + ' fog=' + g.fogT.toFixed(2)
+            + ' break=' + g.breakT.toFixed(2) + ' rope=' + Math.round(g.hook.rope);
+    }
+
+    if (q.get('proptrio') === '1') {
+        // 减速 + 大雾 + 断线 同时挂着：核对三条状态条的行距、宽度和图标对不对
+        g.applyProp('slow', 640, 500);
+        g.applyProp('fog', 640, 500);
+        g.applyProp('break', 640, 500);
+        for (let i = 0; i < 12; i++) g.update(1 / 60);
+        document.title = 'trio slow=' + g.slowT.toFixed(1) + ' fog=' + g.fogT.toFixed(1)
+            + ' break=' + g.breakT.toFixed(1);
+    }
+
+    if (q.get('negtest') === '1') {
+        // 只跑数值断言：断线期间必须出不了钩、3 秒后必须恢复；大雾不许拦出钩。
+        const out = [];
+
+        g.applyProp('break', 640, 500);
+        let fired = 0;
+        for (let i = 0; i < 30; i++) {          // 断线第 0~0.5s
+            g.update(1 / 60);
+            if (g.hook.fire()) fired++;
+        }
+        out.push('brokenFires=' + fired + '(want 0)');
+        out.push('rope@0.5s=' + Math.round(g.hook.rope) + '(want 0)');
+
+        for (let i = 0; i < 200; i++) g.update(1 / 60);   // 跑过 3 秒
+        out.push('breakLeft=' + g.breakT.toFixed(2) + '(want 0)');
+        out.push('ropeAfter=' + Math.round(g.hook.rope) + '(want ' + TUNE.idleRope + ')');
+
+        g.hook.reset();
+        out.push('firedAfter=' + g.hook.fire() + '(want true)');
+
+        // 大雾：不吃物理，出钩必须照常
+        g.hook.reset();
+        g.applyProp('fog', 640, 500);
+        out.push('fogFires=' + g.hook.fire() + '(want true)');
+        out.push('fogLeft=' + g.fogT.toFixed(2) + '(want 3.00)');
+
+        document.title = 'NEG ' + out.join(' | ');
+        return;
+    }
+
+    if (q.get('catchprop')) {
+        // 把道具摆在钩子正下方 → 出钩 → 挂住后收一点线，核对道具挂在钩爪上的位置
+        const kind = q.get('catchprop');
+        g.fishes.length = 0;   // 清场，否则钩子会先撞上鱼
+        g.props.clear();
+        g.props.gap = 9999;
+        const it = g.props.spawn(kind);
+        it.x = g.hook.originX;
+        it.baseY = 600;
+        it.y = 600;
+        it.node.setPosition(it.x - 640, 360 - 600, 0);
+
+        g.hook.reset();
+        g.hook.swingT = 0;
+        g.hook.update(0, g.fishes);
+        g.hook.fire();
+        // 走真实主循环，等它真的挂上
+        let guard = 0;
+        while (!g.hook.carryingProp && guard++ < 600) g.update(1 / 60);
+        // 再收几帧，让道具离开原位、挂在钩爪上（别收完，收完就结算销毁了）
+        for (let i = 0; i < 8; i++) g.update(1 / 60);
+        document.title = 'catchprop ' + kind + ' state=' + g.hook.state
+            + ' held=' + (g.hook.carryingProp ? g.hook.carryingProp.kind : 'none');
+    }
+
+    if (q.get('catch')) {
+        // 把指定鱼摆在钩子正下方 → 出钩 → 钩住后收一点线，用来核对「鱼和钩爪贴不贴」
+        const type = q.get('catch');
+        g.fishes.length = 0;
+        g.spawnFish({ type: type, x: g.hook.originX, y: 430, dir: 1 });
+        g.hook.reset();
+        g.hook.swingT = 0;
+        g.hook.update(0, g.fishes);
+        g.hook.fire();
+        let n = 0;
+        while (g.hook.state === 'shoot' && n < 600) { g.hook.update(1 / 60, g.fishes); n++; }
+        for (let i = 0; i < 30; i++) g.hook.update(1 / 60, g.fishes);
+        document.title = 'catch ' + type + ' state=' + g.hook.state;
+    }
+
+    // __shot__/__tick__ 末尾才 render，改完状态要再走一帧才会画出来
+    window.__tick__(0.02);
+    document.title = (q.get('catch') || q.get('catchprop') || q.get('prop')) ? document.title : 'shot-done';
+
+    if (q.get('intro') === '1') {
+        // 开场说明（5 行文案 + 提示语），用来核对行距有没有顶到卷轴边
+        g.readyToPlay();
+        window.__render__();
+        document.title = 'intro';
+    }
+}
+
+const t = setInterval(() => {
+    if (window.__ready__) {
+        clearInterval(t);
+        try {
+            go();
+        } catch (e) {
+            document.title = 'ERR ' + (e && e.message ? e.message : String(e));
+        }
+    }
+}, 30);
+</script>
+</body>
+</html>

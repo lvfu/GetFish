@@ -1389,9 +1389,10 @@
     drawBubbles();
     drawFish();
     drawQuay();
-    // 鱼线在栈道之后画，否则会被甲板截断；又在角色之前画，避免「穿过鱼竿」
-    drawHook();
+    // 鱼线要画在栈道之后（否则会被甲板截断），又要画在角色之后：
+    // 钩子摆到左侧时正好落在裙摆上，压在角色下面就只剩半个钩尖露出来
     drawPrincess();
+    drawHook();
     drawFX();
     drawHUD();
     drawPicker();

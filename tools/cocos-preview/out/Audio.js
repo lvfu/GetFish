@@ -1,5 +1,5 @@
 import { Node, Graphics, UITransform, Color, Label, AudioSource, AudioClip, resources, sys, HorizontalTextAlignment, VerticalTextAlignment, } from 'cc';
-import { DESIGN, px, py } from './GameConfig.js';
+import { DESIGN, VIEW, px, py } from './GameConfig.js';
 import { PAL, col, circleD, moveToD, lineToD } from './DayNight.js';
 /**
  * 音频与静音按钮。
@@ -23,7 +23,7 @@ export class GameAudio {
         this.soundOn = true;
         this.clips = {};
         this.loaded = 0;
-        this.total = 5;
+        this.total = 6;
         this.wantBgm = false;
         this.curVol = 0;
         this.targetVol = 0;
@@ -52,7 +52,7 @@ export class GameAudio {
     }
     // ================= 加载 =================
     load() {
-        const names = ['bgm', 'sfx_cast', 'sfx_catch', 'sfx_click', 'sfx_win'];
+        const names = ['bgm', 'sfx_cast', 'sfx_catch', 'sfx_click', 'sfx_win', 'sfx_prop'];
         for (const n of names) {
             resources.load(`audio/${n}`, AudioClip, (err, clip) => {
                 if (err || !clip) {
@@ -156,12 +156,21 @@ export class GameAudio {
     win() {
         this.play('sfx_win');
     }
+    /**
+     * 收到道具。比「捕获」高一档的上行三连音，
+     * 和抓鱼的叮咚区分开，不然玩家分不清这一钩到底捞到了什么。
+     */
+    prop() {
+        this.play('sfx_prop');
+    }
 }
 // ================= 静音按钮 =================
 const SND = { x: DESIGN.w - 70, y: 92, size: 44 };
 /** 右上角圆形静音按钮，米色牌匾样式，静音时画一道红斜线 */
 export class SoundButton {
     constructor(parent, on) {
+        // 贴可见区域的右边缘（FIXED_HEIGHT 下宽屏比 1280 宽）
+        SND.x = VIEW.right - 70;
         this.node = new Node('Sound');
         this.node.layer = parent.layer;
         this.node.addComponent(UITransform).setContentSize(DESIGN.w, DESIGN.h);
@@ -217,6 +226,12 @@ export class SoundButton {
             return;
         }
         this.on = on;
+        this.redraw();
+    }
+    /** 可见宽度变了：按钮重新贴右边缘 */
+    relayout() {
+        SND.x = VIEW.right - 70;
+        this.icon.node.setPosition(px(SND.x + SND.size / 2), py(SND.y + SND.size / 2), 0);
         this.redraw();
     }
     /** 设计坐标命中测试 */

@@ -2,7 +2,7 @@ import {
     Node, Graphics, UITransform, Color, Label, AudioSource, AudioClip, resources, sys,
     HorizontalTextAlignment, VerticalTextAlignment,
 } from 'cc';
-import { DESIGN, px, py } from './GameConfig';
+import { DESIGN, VIEW, px, py } from './GameConfig';
 import { PAL, col, circleD, moveToD, lineToD } from './DayNight';
 
 /**
@@ -32,7 +32,7 @@ export class GameAudio {
     private sfx: AudioSource;
     private clips: { [k: string]: AudioClip } = {};
     private loaded = 0;
-    private readonly total = 5;
+    private readonly total = 6;
     private wantBgm = false;
     private curVol = 0;
     private targetVol = 0;
@@ -68,7 +68,7 @@ export class GameAudio {
     // ================= 加载 =================
 
     private load(): void {
-        const names = ['bgm', 'sfx_cast', 'sfx_catch', 'sfx_click', 'sfx_win'];
+        const names = ['bgm', 'sfx_cast', 'sfx_catch', 'sfx_click', 'sfx_win', 'sfx_prop'];
         for (const n of names) {
             resources.load(`audio/${n}`, AudioClip, (err, clip) => {
                 if (err || !clip) {
@@ -181,6 +181,14 @@ export class GameAudio {
     win(): void {
         this.play('sfx_win');
     }
+
+    /**
+     * 收到道具。比「捕获」高一档的上行三连音，
+     * 和抓鱼的叮咚区分开，不然玩家分不清这一钩到底捞到了什么。
+     */
+    prop(): void {
+        this.play('sfx_prop');
+    }
 }
 
 // ================= 静音按钮 =================
@@ -195,6 +203,9 @@ export class SoundButton {
     private on: boolean;
 
     constructor(parent: Node, on: boolean) {
+        // 贴可见区域的右边缘（FIXED_HEIGHT 下宽屏比 1280 宽）
+        SND.x = VIEW.right - 70;
+
         this.node = new Node('Sound');
         this.node.layer = parent.layer;
         this.node.addComponent(UITransform).setContentSize(DESIGN.w, DESIGN.h);
@@ -260,6 +271,13 @@ export class SoundButton {
             return;
         }
         this.on = on;
+        this.redraw();
+    }
+
+    /** 可见宽度变了：按钮重新贴右边缘 */
+    relayout(): void {
+        SND.x = VIEW.right - 70;
+        this.icon.node.setPosition(px(SND.x + SND.size / 2), py(SND.y + SND.size / 2), 0);
         this.redraw();
     }
 

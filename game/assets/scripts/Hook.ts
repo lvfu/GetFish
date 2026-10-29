@@ -1,6 +1,7 @@
 import { Node, Graphics, Color, UITransform } from 'cc';
-import { TUNE, px, py } from './GameConfig';
+import { TUNE, PROP, px, py } from './GameConfig';
 import { Fish } from './Fish';
+import { PropItem } from './Props';
 
 export type HookState = 'aim' | 'shoot' | 'retract';
 
@@ -21,6 +22,10 @@ export class Hook {
     rope = TUNE.idleRope;
     /** 正在带回的鱼 */
     carrying: Fish | null = null;
+    /** 正在带回的道具（和鱼互斥：一钩只带一样） */
+    carryingProp: PropItem | null = null;
+    /** 断线剩余时间（>0 表示线和钩子都没了，不能出钩） */
+    brokenT = 0;
 
     /** 鱼线支点（= 鱼竿尖），由 Princess 每次换装后写入 */
     originX = TUNE.princessCx;
@@ -111,16 +116,60 @@ export class Hook {
         this.rope = TUNE.idleRope;
         this.swingT = 0;
         this.carrying = null;
+        this.carryingProp = null;
+        this.brokenT = 0;
         this.redraw();
+    }
+
+    /** 是否处于断线状态 */
+    get broken(): boolean {
+        return this.brokenT > 0;
+    }
+
+    /**
+     * 鱼线绷断。
+     *
+     * 线和钩子一起消失（`rope = 0` 时 `redraw()` 会把钩爪藏起来），
+     * 手上带着的东西也一起丢掉 —— 线都断了，鱼没道理还挂着。
+     */
+    breakLine(t: number): void {
+        this.brokenT = t;
+        this.state = 'aim';
+        this.carrying = null;
+        this.carryingProp = null;
+        this.rope = 0;
+        this.redraw();
+    }
+
+    /** 只有「钩子在水里且两手空空」时才能挂上道具 */
+    canLatch(): boolean {
+        return this.state !== 'aim' && !this.carrying && !this.carryingProp;
+    }
+
+    /** 钩住一枚道具：直接转入收线，和钩住鱼的表现一致 */
+    latch(p: PropItem): void {
+        if (!this.canLatch()) {
+            return;
+        }
+        this.carryingProp = p;
+        p.caught = true;
+        this.state = 'retract';
+    }
+
+    /** 收线到顶，取出带回的道具并清空 */
+    takeCarriedProp(): PropItem | null {
+        const p = this.carryingProp;
+        this.carryingProp = null;
+        return p;
     }
 
     /** 尝试出钩，仅瞄准态可用 */
     fire(): boolean {
-        if (this.state !== 'aim') {
+        if (this.state !== 'aim' || this.brokenT > 0) {
             return false;
         }
         this.state = 'shoot';
-        this.rope = TUNE.idleRope;
+        // 绳长沿用当前值，出钩瞬间钩子不会往上跳一下
         return true;
     }
 
@@ -130,9 +179,25 @@ export class Hook {
     update(dt: number, fishes: Fish[]): Fish | null {
         let caught: Fish | null = null;
 
+        // 断线：什么都不做，只倒计时 + 让线从竿尖慢慢长回来
+        if (this.brokenT > 0) {
+            this.brokenT -= dt;
+            if (this.brokenT <= 0) {
+                this.brokenT = 0;
+                this.reset();
+            } else {
+                // 最后 PROP.regrow 秒才开始长，前面 2 秒多是完全没线的
+                const left = Math.min(1, this.brokenT / PROP.regrow);
+                this.rope = TUNE.idleRope * (1 - left);
+                this.redraw();
+            }
+            return null;
+        }
+
         if (this.state === 'aim') {
             this.swingT += dt;
             this.angle = TUNE.swingMax * Math.sin(this.swingT * TUNE.swingOmega);
+            // 绳长恒定：钩子走的是真正的摆弧，不能一会儿长一会儿短
             this.rope = TUNE.idleRope;
         } else if (this.state === 'shoot') {
             this.rope += TUNE.shootSpeed * dt;
@@ -156,9 +221,14 @@ export class Hook {
                 this.state = 'retract';
             }
         } else {
+            // 带鱼收线按这条鱼自己的「重量」（fish-config 里的 reel）：
+            // 小丑鱼 190 一拽就上来，鲨鱼只有 115，深水那条要拉三秒。
+            // 道具也分轻重：徽章 200、章鱼 165、剑鱼 135（它还会挣）。
             const spd = this.carrying
-                ? Math.max(300, 880 - this.carrying.size * 3.4)
-                : TUNE.shootSpeed * 0.92;
+                ? Math.max(TUNE.reelMin, this.carrying.reel)
+                : this.carryingProp
+                    ? Math.max(TUNE.reelMin, this.carryingProp.reelSpeed)
+                    : TUNE.shootSpeed * TUNE.reelEmptyK;
             this.rope -= spd * dt;
             if (this.rope <= TUNE.idleRope) {
                 this.rope = TUNE.idleRope;
@@ -169,6 +239,10 @@ export class Hook {
         if (this.carrying) {
             const t = this.tip;
             this.carrying.followTo(t.x, t.y);
+        }
+        if (this.carryingProp) {
+            const t = this.tip;
+            this.carryingProp.followTo(t.x, t.y);
         }
         this.redraw();
         return caught;
@@ -204,6 +278,9 @@ export class Hook {
         } else {
             this.claw.setPosition(0, 0, 0);
         }
+        // 没有线就没有钩：断线（含最后那段「线在长回来」）时把钩爪一起藏掉。
+        // 只把绳子清空、留着钩爪的话，它会缩在竿尖上，看起来像「钩子还在，只是线变短了」。
+        this.claw.active = this.brokenT <= 0 && this.rope > 0.5;
         // 钩爪跟随绳的方向旋转：本地「朝下」为 (0,-1)，绕 z 逆时针转 angle 后正好指向绳的方向
         this.claw.angle = (this.angle * 180) / Math.PI;
     }

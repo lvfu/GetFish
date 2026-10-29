@@ -81,6 +81,17 @@ export class UITransform extends Component {
     }
 }
 
+/**
+ * UI 透明度。脚本只用到 `opacity`（0~255）。
+ * 语义与引擎一致：乘进本节点及所有子节点的绘制透明度，用来做淡入淡出。
+ */
+export class UIOpacity extends Component {
+    constructor() {
+        super();
+        this.opacity = 255;
+    }
+}
+
 export class Graphics extends Component {
     constructor() {
         super();
@@ -105,6 +116,7 @@ export class Graphics extends Component {
     roundRect(x, y, w, h, r) { this._path.push(['RR', x, y, w, h, r]); }
     circle(cx, cy, r) { this._path.push(['E', cx, cy, r, r]); }
     ellipse(cx, cy, rx, ry) { this._path.push(['E', cx, cy, rx, ry]); }
+    arc(cx, cy, r, a0, a1, ccw) { this._path.push(['A', cx, cy, r, a0, a1, !!ccw]); }
     fill() {
         this._ops.push({ t: 'fill', c: this.fillColor, p: this._path.slice() });
         this._path.length = 0;
@@ -202,10 +214,19 @@ export class AudioSource extends Component {
 }
 
 export const sys = {
+    isBrowser: false,
     localStorage: {
         getItem(k) { try { return window.localStorage.getItem(k); } catch (e) { return null; } },
         setItem(k, v) { try { window.localStorage.setItem(k, v); } catch (e) { /* ignore */ } },
     },
+};
+
+/** 屏幕：预览器不支持全屏 / 锁方向，竖屏提示层的按钮会自动隐藏 */
+export const screen = {
+    supportsFullScreen: false,
+    fullScreen() { return false; },
+    requestFullScreen() { return Promise.resolve(); },
+    exitFullScreen() { return Promise.resolve(); },
 };
 
 // ================= 节点 =================
@@ -353,11 +374,32 @@ export const KeyCode = {
     DIGIT_5: 53, DIGIT_6: 54, DIGIT_7: 55, DIGIT_8: 56,
 };
 
-export const ResolutionPolicy = { SHOW_ALL: 2, EXACT_FIT: 0, NO_BORDER: 1 };
+export const ResolutionPolicy = {
+    EXACT_FIT: 0, NO_BORDER: 1, SHOW_ALL: 2, FIXED_HEIGHT: 3, FIXED_WIDTH: 4,
+};
+
+/** 相机：预览器只用到 clearColor / orthoHeight，不做真实渲染 */
+export class Camera extends Component {
+    constructor() {
+        super();
+        this.orthoHeight = 360;
+        this.clearColor = new Color(0, 0, 0, 255);
+    }
+}
 
 export const view = {
     setDesignResolutionSize() { },
+    /** 预览器默认按设计分辨率；QA 页可以用 __setVisibleSize__ 模拟宽屏 */
+    getVisibleSize() { return _visible; },
+    setResizeCallback() { },
 };
+
+let _visible = new Size(1280, 720);
+
+/** 模拟不同屏幕比例（FIXED_HEIGHT：高度恒 720，宽度变化） */
+export function __setVisibleSize__(w, h) {
+    _visible = new Size(w, h);
+}
 
 export const _decorator = {
     ccclass: () => (t) => t,

@@ -24,15 +24,28 @@ CN = {"clownfish": "小丑鱼", "goldfish": "金鱼", "blue_tang": "蓝色热带
       "pufferfish": "河豚", "angelfish": "神仙鱼", "ray": "鳐鱼",
       "shark": "鲨鱼", "golden_koi": "黄金锦鲤"}
 
+# pattern / wave / reel 是玩法性格，不是美术参数：
+#   pattern  游法（cruise 匀速 / dart 走走停停 / sweep 优雅上下巡游 /
+#                 glide 贴底滑翔 / burst 间歇突进）
+#   wave     纵向摆动幅度 px
+#   reel     收线速度 px/s，越小越「沉」（小鱼一拽就上来，鲨鱼要拉三秒）
 CONFIG = {
-    "clownfish": {"name": "小丑鱼", "image": "clownfish", "baseSize": 60, "baseSpeed": 80, "baseValue": 20},
-    "goldfish": {"name": "金鱼", "image": "goldfish", "baseSize": 70, "baseSpeed": 60, "baseValue": 30},
-    "blue_tang": {"name": "蓝色热带鱼", "image": "blue_tang", "baseSize": 65, "baseSpeed": 100, "baseValue": 25},
-    "pufferfish": {"name": "河豚", "image": "pufferfish", "baseSize": 65, "baseSpeed": 45, "baseValue": 50},
-    "angelfish": {"name": "神仙鱼", "image": "angelfish", "baseSize": 75, "baseSpeed": 70, "baseValue": 40},
-    "ray": {"name": "鳐鱼", "image": "ray", "baseSize": 100, "baseSpeed": 50, "baseValue": 100},
-    "shark": {"name": "鲨鱼", "image": "shark", "baseSize": 120, "baseSpeed": 40, "baseValue": 200},
-    "golden_koi": {"name": "黄金锦鲤", "image": "golden_koi", "baseSize": 85, "baseSpeed": 55, "baseValue": 150},
+    "clownfish": {"name": "小丑鱼", "image": "clownfish", "baseSize": 60, "baseSpeed": 110,
+                  "baseValue": 20, "pattern": "dart", "wave": 6, "reel": 117},
+    "goldfish": {"name": "金鱼", "image": "goldfish", "baseSize": 70, "baseSpeed": 52,
+                 "baseValue": 30, "pattern": "cruise", "wave": 11, "reel": 107},
+    "blue_tang": {"name": "蓝色热带鱼", "image": "blue_tang", "baseSize": 65, "baseSpeed": 155,
+                  "baseValue": 25, "pattern": "dart", "wave": 5, "reel": 126},
+    "pufferfish": {"name": "河豚", "image": "pufferfish", "baseSize": 65, "baseSpeed": 42,
+                   "baseValue": 50, "pattern": "glide", "wave": 4, "reel": 50},
+    "angelfish": {"name": "神仙鱼", "image": "angelfish", "baseSize": 75, "baseSpeed": 78,
+                  "baseValue": 40, "pattern": "sweep", "wave": 16, "reel": 86},
+    "ray": {"name": "鳐鱼", "image": "ray", "baseSize": 100, "baseSpeed": 40,
+            "baseValue": 100, "pattern": "glide", "wave": 9, "reel": 71},
+    "shark": {"name": "鲨鱼", "image": "shark", "baseSize": 120, "baseSpeed": 62,
+              "baseValue": 200, "pattern": "burst", "wave": 3, "reel": 71},
+    "golden_koi": {"name": "黄金锦鲤", "image": "golden_koi", "baseSize": 85, "baseSpeed": 96,
+                   "baseValue": 150, "pattern": "burst", "wave": 8, "reel": 83},
 }
 
 
