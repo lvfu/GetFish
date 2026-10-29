@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#04121e">
+  <title>黄金鱼钩 · 玩法原型</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="stage">
+    <canvas id="cv" width="1280" height="720"></canvas>
+  </div>
+  <div id="rotate-hint">
+    <div class="ico">⟳</div>
+    <div class="txt">请横屏游玩</div>
+    <div class="sub">这个游戏是 16:9 横屏的</div>
+    <button id="force-play" class="btn" type="button">浏览器锁了竖屏？点这里直接玩</button>
+    <div class="vp"></div>
+  </div>
+  <div id="rot-tip">把手机向左转 90° 就能正着看</div>
+  <script src="fish-config.js"></script>
+  <script src="princess-config.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>

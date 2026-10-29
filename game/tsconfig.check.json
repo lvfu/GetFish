@@ -1,0 +1,14 @@
+{
+  "//": "仅用于命令行类型检查：把引擎的 cc.d.ts 挂进来，tsc --noEmit 就能校验 API 用法。Cocos 编辑器不读这个文件。",
+  "compilerOptions": {
+    "target": "ES2019",
+    "module": "ESNext",
+    "moduleResolution": "node",
+    "strict": false,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "experimentalDecorators": true,
+    "types": []
+  },
+  "include": ["assets/scripts/**/*.ts", "C:/ProgramData/cocos/editors/Creator/3.8.8/resources/resources/3d/engine/bin/.declarations/cc.d.ts"]
+}

@@ -1,0 +1,42 @@
+{
+  "ice_princess": {
+    "name": "冰霜公主",
+    "image": "ice_princess",
+    "rodTip": [0.7734, 0.0723]
+  },
+  "snow_princess": {
+    "name": "雪国公主",
+    "image": "snow_princess",
+    "rodTip": [0.7715, 0.0391]
+  },
+  "east_princess": {
+    "name": "东方公主",
+    "image": "east_princess",
+    "rodTip": [0.7871, 0.1016]
+  },
+  "longhair_princess": {
+    "name": "长发公主",
+    "image": "longhair_princess",
+    "rodTip": [0.6934, 0.1543]
+  },
+  "rose_princess": {
+    "name": "玫瑰公主",
+    "image": "rose_princess",
+    "rodTip": [0.8066, 0.1348]
+  },
+  "ball_princess": {
+    "name": "舞会公主",
+    "image": "ball_princess",
+    "rodTip": [0.8672, 0.0508]
+  },
+  "forest_princess": {
+    "name": "森林公主",
+    "image": "forest_princess",
+    "rodTip": [0.7754, 0.0938]
+  },
+  "desert_princess": {
+    "name": "沙漠公主",
+    "image": "desert_princess",
+    "rodTip": [0.8672, 0.0488]
+  }
+}

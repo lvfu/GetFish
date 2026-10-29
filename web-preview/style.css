@@ -1,0 +1,131 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #04121e;
+  font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+#stage {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#cv {
+  display: block;
+  border-radius: 12px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+  touch-action: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 竖屏提示：16:9 横屏游戏，竖屏下强制提示旋转 */
+#rotate-hint {
+  display: none;
+  position: fixed;
+  inset: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: #04121e;
+  color: #dff2ff;
+  text-align: center;
+  z-index: 10;
+}
+
+#rotate-hint .ico {
+  font-size: 64px;
+  color: #4fd1c5;
+  animation: spin 2.4s ease-in-out infinite;
+}
+
+#rotate-hint .txt {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+#rotate-hint .sub {
+  font-size: 14px;
+  opacity: 0.55;
+}
+
+#rotate-hint .btn {
+  margin-top: 4px;
+  padding: 11px 22px;
+  border: 1px solid rgba(79, 209, 197, 0.55);
+  border-radius: 999px;
+  background: rgba(79, 209, 197, 0.12);
+  color: #7fe7dc;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#rotate-hint .btn:active {
+  background: rgba(79, 209, 197, 0.28);
+}
+
+/* 调试用：把实测视口打出来，方便判断是"浏览器没转"还是"判断错了" */
+#rotate-hint .vp {
+  font-size: 12px;
+  opacity: 0.35;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.3px;
+}
+
+@keyframes spin {
+  0%, 60% { transform: rotate(0deg); }
+  80%, 100% { transform: rotate(90deg); }
+}
+
+/* 方向状态由 JS 打在 body 上，不再用 @media (orientation) 判断：
+   部分手机浏览器（微信/QQ 内置、开了旋转锁）视口方向不会随手机改变，
+   媒体查询会一直命中 portrait，导致提示永远消不掉。 */
+body.need-landscape #rotate-hint { display: flex; }
+body.need-landscape #stage { display: none; }
+
+/* 兜底模式：浏览器锁死竖屏时，把整个舞台转 90° 铺满屏幕，内容依旧是横向的 */
+body.rot90 { background: #04121e; }
+body.rot90 #stage {
+  position: fixed;
+  display: flex;
+  transform-origin: 0 0;
+}
+
+/* 转 90° 后告诉用户往哪边转手机，几秒后自动淡出 */
+#rot-tip {
+  display: none;
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: rgba(79, 209, 197, 0.16);
+  border: 1px solid rgba(79, 209, 197, 0.4);
+  color: #9df0e6;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 20;
+}
+
+body.rot90 #rot-tip {
+  display: block;
+  animation: tipfade 4.5s ease forwards;
+}
+
+@keyframes tipfade {
+  0%, 72% { opacity: 1; }
+  100% { opacity: 0; }
+}

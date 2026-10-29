@@ -1,0 +1,16 @@
+{
+  "//": "只给预览器用：noCheck 跳过类型检查（类型检查走 game/tsconfig.check.json），只要产物。",
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ES2020",
+    "moduleResolution": "node",
+    "strict": false,
+    "skipLibCheck": true,
+    "noCheck": true,
+    "experimentalDecorators": true,
+    "outDir": "./out",
+    "rootDir": "../../game/assets/scripts",
+    "lib": ["ES2020", "DOM"]
+  },
+  "include": ["../../game/assets/scripts/**/*.ts"]
+}

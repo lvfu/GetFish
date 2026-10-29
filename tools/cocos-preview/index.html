@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Cocos 画面预览</title>
+<style>
+  html, body { margin: 0; background: #11161a; }
+  #wrap { width: 1280px; height: 720px; margin: 0 auto; position: relative; }
+  canvas { display: block; width: 1280px; height: 720px; }
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="stage" width="1280" height="720"></canvas></div>
+<script type="importmap">
+{ "imports": { "cc": "./cc-shim.js" } }
+</script>
+<script type="module" src="./main.js"></script>
+</body>
+</html>

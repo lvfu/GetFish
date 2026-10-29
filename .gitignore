@@ -1,0 +1,24 @@
+# ===== Cocos Creator 编辑器生成物（可由 assets + 编辑器重新生成）=====
+game/library/
+game/temp/
+game/build/
+game/profiles/
+game/local/
+
+# ===== 调试/验收截图（过程产物，不入库）=====
+tools/*.png
+delivery/qa/
+delivery/raw_crops/
+
+# ===== AI 生成的原始中间产物（成品已拷贝进 game/assets）=====
+assets/images/princess/raw/
+assets/images/fish/raw/
+
+# ===== WorkBuddy 会话数据 =====
+.workbuddy/
+.workbuddy-ai/
+
+# ===== 系统杂项 =====
+.DS_Store
+Thumbs.db
+node_modules/
